@@ -179,6 +179,9 @@ bot.callbackQuery(/^share_banner:(.+)$/, async (ctx) => {
     ]);
   }
   
+  // Always keep share banner button visible
+  buttons.push([{ text: "اشتراک بنر 📢", callback_data: `share_banner:${likeId}` }]);
+  
   await ctx.reply(
     `🎯 لایک: ${likeData.name}\n\n👤 سازنده: ${likeData.username}\n❤️ تعداد لایک: ${likeData.likes}\n\nبرای لایک کردن روی دکمه زیر کلیک کنید:`,
     {
