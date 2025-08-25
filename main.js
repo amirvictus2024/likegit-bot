@@ -8,6 +8,16 @@ const bot = new Bot(process.env.BOT_TOKEN || "");
 // Channel ID for mandatory subscription
 const REQUIRED_CHANNEL = "@NoiDUsers";
 
+// Utilities
+function generateLikeId(length = 20) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let id = "";
+  for (let i = 0; i < length; i++) {
+    id += alphabet.charAt(Math.floor(Math.random() * alphabet.length));
+  }
+  return id;
+}
+
 // Bot commands
 bot.command("start", async (ctx) => {
   const userId = ctx.from.id;
@@ -101,8 +111,8 @@ bot.on("message:text", async (ctx) => {
   if (userState === "waiting_like_name") {
     const likeName = ctx.message.text;
     
-    // Generate unique like ID
-    const likeId = `like_${Date.now()}_${userId}`;
+    // Generate short unique like ID (20 alphanumeric chars)
+    const likeId = generateLikeId(20);
     
     // Save like data
     await kv.set(`like:${likeId}`, {
@@ -138,8 +148,11 @@ bot.on("message:text", async (ctx) => {
       ]);
     }
     
-    // Share banner button
-    buttons.push([{ text: "اشتراک بنر 📢", callback_data: `share_banner:${likeId}` }]);
+    // Share options
+    buttons.push([
+      { text: "اشتراک بنر 📢", callback_data: `share_banner:${likeId}` },
+      { text: "ارسال به کانال من 📤", callback_data: `post_to_my_channel:${likeId}` }
+    ]);
     
     await ctx.reply(
       `✅ لایک شما با موفقیت ساخته شد!\n\n📝 نام: ${likeName}\n🆔 شناسه: ${likeId}\n\nحالا می‌توانید بنر لایک را اشتراک‌گذاری کنید:`,
@@ -179,8 +192,11 @@ bot.callbackQuery(/^share_banner:(.+)$/, async (ctx) => {
     ]);
   }
   
-  // Always keep share banner button visible
-  buttons.push([{ text: "اشتراک بنر 📢", callback_data: `share_banner:${likeId}` }]);
+  // Always keep share banner button visible + quick post to my channel
+  buttons.push([
+    { text: "اشتراک بنر 📢", callback_data: `share_banner:${likeId}` },
+    { text: "ارسال به کانال من 📤", callback_data: `post_to_my_channel:${likeId}` }
+  ]);
   
   await ctx.reply(
     `🎯 لایک: ${likeData.name}\n\n👤 سازنده: ${likeData.username}\n❤️ تعداد لایک: ${likeData.likes}\n\nبرای لایک کردن روی دکمه زیر کلیک کنید:`,
@@ -190,6 +206,42 @@ bot.callbackQuery(/^share_banner:(.+)$/, async (ctx) => {
       }
     }
   );
+});
+
+// Post banner to user's configured channel
+bot.callbackQuery(/^post_to_my_channel:(.+)$/, async (ctx) => {
+  const likeId = ctx.match[1];
+  const likeData = await kv.get(`like:${likeId}`);
+  if (!likeData) {
+    return ctx.answer("لایک مورد نظر یافت نشد!");
+  }
+  const userId = ctx.from.id;
+  const userChannel = await kv.get(`user_channel:${userId}`);
+  if (!userChannel) {
+    return ctx.answer("ابتدا یک کانال در تنظیمات ثبت کنید.");
+  }
+  // Build keyboard similar to share preview but without back/share
+  const inline_keyboard = [];
+  inline_keyboard.push(
+    userChannel
+      ? [
+          { text: "لایک ❤️", callback_data: `like_with_sub:${likeId}` },
+          { text: "عضویت در کانال 📢", url: `https://t.me/${userChannel.slice(1)}` }
+        ]
+      : [
+          { text: "لایک ❤️", callback_data: `like_simple:${likeId}` }
+        ]
+  );
+  const text = `🎯 لایک: ${likeData.name}\n\n👤 سازنده: ${likeData.username}\n❤️ تعداد لایک: ${likeData.likes}\n\nبرای لایک کردن روی دکمه زیر کلیک کنید:`;
+  try {
+    await ctx.api.sendMessage(userChannel, text, {
+      reply_markup: { inline_keyboard }
+    });
+    await ctx.answer("بنر با موفقیت به کانال ارسال شد.");
+  } catch (e) {
+    console.error("Error posting to channel", e);
+    await ctx.answer("ارسال به کانال ناموفق بود. اطمینان حاصل کنید ربات ادمین کانال است.");
+  }
 });
 
 // Simple like (no subscription required)
