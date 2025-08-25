@@ -297,6 +297,18 @@ bot.callbackQuery(/^check_sub_for_like:(.+)$/, async (ctx) => {
     await kv.set(`user_liked:${userId}:${likeId}`, Date.now());
     
     await ctx.answer("✅ لایک شما ثبت شد!");
+    
+    // Update the message to reflect the live like count while keeping all buttons
+    try {
+      await ctx.editMessageText(
+        `🎯 لایک: ${likeData.name}\n\n👤 سازنده: ${likeData.username}\n❤️ تعداد لایک: ${likeData.likes}\n\nبرای لایک کردن روی دکمه زیر کلیک کنید:`,
+        {
+          reply_markup: ctx.callbackQuery.message.reply_markup
+        }
+      );
+    } catch (e) {
+      // ignore edit failures (e.g., message changed elsewhere)
+    }
   } else {
     await ctx.answer("هنوز عضو کانال نشده‌اید!");
   }
