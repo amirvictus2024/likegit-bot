@@ -78,7 +78,12 @@ bot.callbackQuery("create_like", async (ctx) => {
     {
       reply_markup: {
         inline_keyboard: [
-          [{ text: "🔙 بازگشت", callback_data: "back_to_menu" }]
+          [
+            { text: "لغو عملیات ❌", callback_data: "cancel_operation" }
+          ],
+          [
+            { text: "🔙 بازگشت", callback_data: "back_to_menu" }
+          ]
         ]
       }
     }
@@ -108,25 +113,33 @@ bot.on("message:text", async (ctx) => {
       likes: 0
     });
     
+    // Track like under creator stats
+    const userLikes = (await kv.get(`user_likes:${userId}`)) || [];
+    userLikes.unshift(likeId);
+    await kv.set(`user_likes:${userId}`, userLikes);
+    
     // Clear user state
     await kv.del(`user_state:${userId}`);
     
     // Check if user has set up a channel
     const userChannel = await kv.get(`user_channel:${userId}`);
     
-    const buttons = [
-      [{ text: "اشتراک بنر 📢", callback_data: `share_banner:${likeId}` }]
-    ];
+    const buttons = [];
     
     if (userChannel) {
+      // Like + Join row when channel is configured
       buttons.push([
-        { text: "لایک (نیاز به عضویت) 👍", callback_data: `like_with_sub:${likeId}` }
+        { text: "لایک ❤️", callback_data: `like_with_sub:${likeId}` },
+        { text: "عضویت در کانال 📢", url: `https://t.me/${userChannel.slice(1)}` }
       ]);
     } else {
       buttons.push([
-        { text: "لایک 👍", callback_data: `like_simple:${likeId}` }
+        { text: "لایک ❤️", callback_data: `like_simple:${likeId}` }
       ]);
     }
+    
+    // Share banner button
+    buttons.push([{ text: "اشتراک بنر 📢", callback_data: `share_banner:${likeId}` }]);
     
     await ctx.reply(
       `✅ لایک شما با موفقیت ساخته شد!\n\n📝 نام: ${likeName}\n🆔 شناسه: ${likeId}\n\nحالا می‌توانید بنر لایک را اشتراک‌گذاری کنید:`,
@@ -155,12 +168,14 @@ bot.callbackQuery(/^share_banner:(.+)$/, async (ctx) => {
   ];
   
   if (userChannel) {
+    // Like + Join in the same row
     buttons.unshift([
-      { text: "لایک (نیاز به عضویت) 👍", callback_data: `like_with_sub:${likeId}` }
+      { text: "لایک ❤️", callback_data: `like_with_sub:${likeId}` },
+      { text: "عضویت در کانال 📢", url: `https://t.me/${userChannel.slice(1)}` }
     ]);
   } else {
     buttons.unshift([
-      { text: "لایک 👍", callback_data: `like_simple:${likeId}` }
+      { text: "لایک ❤️", callback_data: `like_simple:${likeId}` }
     ]);
   }
   
@@ -183,12 +198,18 @@ bot.callbackQuery(/^like_simple:(.+)$/, async (ctx) => {
     return ctx.answer("لایک مورد نظر یافت نشد!");
   }
   
+  // Prevent duplicate likes
+  const userId = ctx.from.id;
+  const alreadyLiked = await kv.get(`user_liked:${userId}:${likeId}`);
+  if (alreadyLiked) {
+    return ctx.answer("شما قبلاً این لایک را کرده‌اید!");
+  }
+
   // Increment like count
   likeData.likes += 1;
   await kv.set(`like:${likeId}`, likeData);
   
   // Save user's like
-  const userId = ctx.from.id;
   await kv.set(`user_liked:${userId}:${likeId}`, Date.now());
   
   await ctx.answer("✅ لایک شما ثبت شد!");
@@ -217,17 +238,8 @@ bot.callbackQuery(/^like_with_sub:(.+)$/, async (ctx) => {
   const isSubscribed = await checkSubscription(ctx, userChannel);
   
   if (!isSubscribed) {
-    return ctx.answer(
-      `برای لایک کردن باید عضو کانال ${userChannel} باشید!`,
-      {
-        reply_markup: {
-          inline_keyboard: [
-            [{ text: "عضویت در کانال 📢", url: `https://t.me/${userChannel.slice(1)}` }],
-            [{ text: "بررسی عضویت ✅", callback_data: `check_sub_for_like:${likeId}` }]
-          ]
-        }
-      }
-    );
+    // Keyboard already contains join button; just notify
+    return ctx.answer(`برای لایک کردن باید عضو کانال ${userChannel} باشید!`);
   }
   
   // Check if user already liked
@@ -252,9 +264,6 @@ bot.callbackQuery(/^like_with_sub:(.+)$/, async (ctx) => {
     `🎯 لایک: ${likeData.name}\n\n👤 سازنده: ${likeData.username}\n❤️ تعداد لایک: ${likeData.likes}\n\nبرای لایک کردن روی دکمه زیر کلیک کنید:`,
     {
       reply_markup: ctx.callbackQuery.message.reply_markup
-        .inline_keyboard.filter(button => 
-          !button[0].callback_data?.startsWith('like_with_sub:')
-        )
     }
   );
 });
@@ -306,7 +315,12 @@ bot.callbackQuery("channel_settings", async (ctx) => {
   await ctx.reply(message, {
     reply_markup: {
       inline_keyboard: [
-        [{ text: "🔙 بازگشت", callback_data: "back_to_menu" }]
+        [
+          { text: "لغو عملیات ❌", callback_data: "cancel_operation" }
+        ],
+        [
+          { text: "🔙 بازگشت", callback_data: "back_to_menu" }
+        ]
       ]
     }
   });
@@ -390,6 +404,14 @@ bot.callbackQuery("like_stats", async (ctx) => {
 
 // Back to menu
 bot.callbackQuery("back_to_menu", async (ctx) => {
+  await showMainMenu(ctx);
+});
+
+// Cancel any in-progress operation and return to main menu
+bot.callbackQuery("cancel_operation", async (ctx) => {
+  const userId = ctx.from.id;
+  await kv.del(`user_state:${userId}`);
+  await ctx.answer("عملیات لغو شد.");
   await showMainMenu(ctx);
 });
 
